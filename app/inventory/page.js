@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../components/NavBar';
-import { getProductStock, addInventoryPurchase, setProductStock, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
+import { getProductStock, addInventoryPurchase, setProductStock, setUnlimitedStock, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
 
 function fmt(n) {
   return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -55,7 +55,7 @@ function EditStockModal({ item, onClose, onSaved }) {
 
   useEffect(() => {
     if (item) {
-      setValue(String(item.current));
+      setValue(item.current === -1 ? '' : String(item.current));
       setError('');
       setTimeout(() => inputRef.current?.focus(), 80);
     }
@@ -73,7 +73,17 @@ function EditStockModal({ item, onClose, onSaved }) {
     else setError('Failed to update. Please try again.');
   }
 
-  const delta = parseInt(value, 10) - item.current;
+  async function handleSetUnlimited() {
+    setSaving(true);
+    await setUnlimitedStock(item.name);
+    setSaving(false);
+    onSaved(item.name, -1);
+  }
+
+  const currentLabel = item.current === -1 ? '∞' : item.current;
+  const parsedNew = parseInt(value, 10);
+  const effectiveCurrent = item.current === -1 ? 0 : item.current;
+  const delta = parsedNew - effectiveCurrent;
   const deltaLabel = !isNaN(delta) && delta !== 0
     ? (delta > 0 ? `+${delta} will be added` : `${delta} will be removed`)
     : null;
@@ -93,7 +103,7 @@ function EditStockModal({ item, onClose, onSaved }) {
           <div className="flex gap-4 text-center">
             <div className="flex-1 bg-gray-50 rounded-xl py-3">
               <p className="text-xs text-gray-400 font-semibold">Current Stock</p>
-              <p className="text-2xl font-extrabold text-gray-800 mt-0.5">{item.current}</p>
+              <p className="text-2xl font-extrabold text-gray-800 mt-0.5">{currentLabel}</p>
             </div>
             <div className="flex items-center text-gray-300">
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -102,7 +112,7 @@ function EditStockModal({ item, onClose, onSaved }) {
             </div>
             <div className="flex-1 bg-brand/5 border-2 border-brand/20 rounded-xl py-3">
               <p className="text-xs text-brand font-semibold">New Stock</p>
-              <p className="text-2xl font-extrabold text-brand mt-0.5">{!isNaN(parseInt(value)) ? parseInt(value) : '—'}</p>
+              <p className="text-2xl font-extrabold text-brand mt-0.5">{!isNaN(parsedNew) ? parsedNew : '—'}</p>
             </div>
           </div>
 
@@ -126,8 +136,17 @@ function EditStockModal({ item, onClose, onSaved }) {
             {error && <p className="text-xs text-red-500 font-medium mt-1.5 text-center">{error}</p>}
           </div>
 
+          {/* Set Unlimited */}
+          <button
+            onClick={handleSetUnlimited}
+            disabled={saving}
+            className="w-full border-2 border-blue-200 bg-blue-50 text-blue-600 font-bold py-2.5 rounded-xl text-sm disabled:opacity-50"
+          >
+            Set as Unlimited (∞)
+          </button>
+
           {/* Actions */}
-          <div className="flex gap-3 pt-1">
+          <div className="flex gap-3">
             <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 font-semibold py-3 rounded-xl text-sm">
               Cancel
             </button>
