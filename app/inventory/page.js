@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../components/NavBar';
-import { getProductStock, addInventoryPurchase, setProductStock, setUnlimitedStock, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
+import { getProductStock, addInventoryPurchase, setProductStock, setUnlimitedStock, getPendingStockRequests, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
 
 function fmt(n) {
   return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -308,7 +308,8 @@ export default function InventoryPage() {
   const [deleting, setDeleting]       = useState(false);
   const [editTarget, setEditTarget]   = useState(null);
   const [activity, setActivity]       = useState([]);
-  const [undoing, setUndoing]         = useState(null); // log entry id being undone
+  const [undoing, setUndoing]         = useState(null);
+  const [pending, setPending]         = useState({}); // item_name → pending stock value
 
   useEffect(() => {
     if (typeof window !== 'undefined' && sessionStorage.getItem('pos_authed') !== 'true') {
@@ -319,9 +320,14 @@ export default function InventoryPage() {
 
   async function load() {
     setLoading(true);
-    const [data, logs] = await Promise.all([getProductStock(), getRecentActivity(10)]);
+    const [data, logs, pendingMap] = await Promise.all([
+      getProductStock(),
+      getRecentActivity(10),
+      getPendingStockRequests(),
+    ]);
     setItems(data);
     setActivity(logs);
+    setPending(pendingMap);
     setLoading(false);
   }
 
@@ -411,11 +417,14 @@ export default function InventoryPage() {
             {search || filter !== 'all' ? 'No products match.' : 'No stock data yet. Tap "Add Stock" to get started.'}
           </div>
         ) : filtered.map(item => {
+          const hasPending = pending[item.name] != null;
+          const pendingStock = pending[item.name];
           return (
             <div key={item.name}
               className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${
-                item.current === 0 ? 'border-l-4 border-red-400' :
-                item.current !== -1 && item.current <= LOW ? 'border-l-4 border-orange-400' : ''
+                item.current === 0 && !hasPending ? 'border-l-4 border-red-400' :
+                item.current !== -1 && !hasPending && item.current <= LOW ? 'border-l-4 border-orange-400' :
+                hasPending ? 'border-l-4 border-yellow-400' : ''
               }`}>
               <div className="flex items-center gap-3">
                 {/* Info */}
@@ -424,6 +433,11 @@ export default function InventoryPage() {
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
                     <span>+{item.total_in} in</span>
                     <span>−{item.total_sold} sold</span>
+                    {hasPending && (
+                      <span className="text-yellow-500 font-semibold">
+                        → {pendingStock === -1 ? '∞' : pendingStock} pending POS sync
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -508,7 +522,8 @@ export default function InventoryPage() {
         item={editTarget}
         onClose={() => setEditTarget(null)}
         onSaved={(name, newStock) => {
-          setItems(prev => prev.map(i => i.name === name ? { ...i, current: newStock } : i));
+          // Show as pending — actual change applies when POS app syncs
+          setPending(prev => ({ ...prev, [name]: newStock }));
           setEditTarget(null);
         }}
       />
