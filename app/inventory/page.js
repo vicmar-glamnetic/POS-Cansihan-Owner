@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../components/NavBar';
-import { getProductStock, addInventoryPurchase, setProductStock, deleteProductFromInventory } from '../../lib/supabase';
+import { getProductStock, addInventoryPurchase, setProductStock, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
 
 function fmt(n) {
   return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -285,7 +285,9 @@ export default function InventoryPage() {
   const [showModal, setShowModal]     = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting]       = useState(false);
-  const [editTarget, setEditTarget]   = useState(null); // item being edited
+  const [editTarget, setEditTarget]   = useState(null);
+  const [activity, setActivity]       = useState([]);
+  const [undoing, setUndoing]         = useState(null); // log entry id being undone
 
   useEffect(() => {
     if (typeof window !== 'undefined' && sessionStorage.getItem('pos_authed') !== 'true') {
@@ -296,8 +298,9 @@ export default function InventoryPage() {
 
   async function load() {
     setLoading(true);
-    const data = await getProductStock();
+    const [data, logs] = await Promise.all([getProductStock(), getRecentActivity(10)]);
     setItems(data);
+    setActivity(logs);
     setLoading(false);
   }
 
@@ -310,6 +313,18 @@ export default function InventoryPage() {
     setDeleting(false);
     setDeleteTarget(null);
     setItems(prev => prev.filter(i => i.name !== name));
+    // Refresh activity log
+    getRecentActivity(10).then(setActivity);
+  }
+
+  async function handleUndo(logEntry) {
+    setUndoing(logEntry.id);
+    const ok = await undoProductDelete(logEntry);
+    setUndoing(null);
+    if (ok) {
+      setActivity(prev => prev.filter(a => a.id !== logEntry.id));
+      load(); // reload stock to show restored item
+    }
   }
 
   // ── Filters ────────────────────────────────────────────────────────────────
@@ -414,6 +429,48 @@ export default function InventoryPage() {
           );
         })}
       </div>
+
+      {/* Recent Activity */}
+      {activity.length > 0 && (
+        <div className="px-4 pb-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Recent Activity</p>
+          <div className="space-y-2">
+            {activity.map(log => {
+              const ago = (() => {
+                const diff = Date.now() - new Date(log.created_at).getTime();
+                const m = Math.floor(diff / 60000);
+                if (m < 1) return 'just now';
+                if (m < 60) return `${m}m ago`;
+                const h = Math.floor(m / 60);
+                if (h < 24) return `${h}h ago`;
+                return `${Math.floor(h / 24)}d ago`;
+              })();
+              return (
+                <div key={log.id} className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-400">
+                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{log.item_name}</p>
+                    <p className="text-xs text-gray-400">Product deleted · {ago}</p>
+                  </div>
+                  {log.action === 'product_deleted' && (
+                    <button
+                      onClick={() => handleUndo(log)}
+                      disabled={undoing === log.id}
+                      className="shrink-0 text-xs font-bold text-brand border border-brand/30 bg-brand/5 hover:bg-brand/10 px-3 py-1.5 rounded-xl disabled:opacity-50 transition-colors"
+                    >
+                      {undoing === log.id ? 'Restoring…' : 'Undo'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <NavBar />
 
