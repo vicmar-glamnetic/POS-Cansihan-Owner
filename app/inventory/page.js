@@ -1,15 +1,14 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../components/NavBar';
-import { getProductStock, addInventoryPurchase } from '../../lib/supabase';
+import { getProductStock, addInventoryPurchase, setProductStock } from '../../lib/supabase';
 
 function fmt(n) {
   return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const EMPTY_ROW = { item_name: '', quantity: '', unit_cost: '' };
-
 const LOW = 5;
 
 function StockBadge({ current }) {
@@ -22,17 +21,21 @@ function StockBadge({ current }) {
 
 export default function InventoryPage() {
   const router = useRouter();
-  const [items, setItems]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [search, setSearch]       = useState('');
-  const [filter, setFilter]       = useState('all'); // all | low | out
-  const [showModal, setShowModal] = useState(false);
+  const [items, setItems]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [search, setSearch]         = useState('');
+  const [filter, setFilter]         = useState('all');
+  const [showModal, setShowModal]   = useState(false);
+  const [editingId, setEditingId]   = useState(null); // item name being edited
+  const [editValue, setEditValue]   = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editRef = useRef(null);
 
-  // form state
-  const [supplier, setSupplier]   = useState('');
-  const [note, setNote]           = useState('');
-  const [rows, setRows]           = useState([{ ...EMPTY_ROW }]);
-  const [saving, setSaving]       = useState(false);
+  // add stock form
+  const [supplier, setSupplier] = useState('');
+  const [note, setNote]         = useState('');
+  const [rows, setRows]         = useState([{ ...EMPTY_ROW }]);
+  const [saving, setSaving]     = useState(false);
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
@@ -49,6 +52,34 @@ export default function InventoryPage() {
     setLoading(false);
   }
 
+  // ── Inline edit ─────────────────────────────────────────────────────────────
+
+  function startEdit(item) {
+    setEditingId(item.name);
+    setEditValue(String(item.current));
+    setTimeout(() => editRef.current?.focus(), 50);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditValue('');
+  }
+
+  async function confirmEdit(item) {
+    const newStock = parseInt(editValue, 10);
+    if (isNaN(newStock) || newStock < 0) { cancelEdit(); return; }
+    if (newStock === item.current) { cancelEdit(); return; }
+    setSavingEdit(true);
+    const ok = await setProductStock(item.name, newStock, item.current);
+    setSavingEdit(false);
+    if (ok) {
+      setItems(prev => prev.map(i => i.name === item.name ? { ...i, current: newStock } : i));
+    }
+    setEditingId(null);
+  }
+
+  // ── Add stock form ───────────────────────────────────────────────────────────
+
   function openModal() {
     setSupplier(''); setNote(''); setRows([{ ...EMPTY_ROW }]); setFormError('');
     setShowModal(true);
@@ -59,10 +90,7 @@ export default function InventoryPage() {
   }
 
   function addRow() { setRows(prev => [...prev, { ...EMPTY_ROW }]); }
-
-  function removeRow(i) {
-    setRows(prev => prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i));
-  }
+  function removeRow(i) { setRows(prev => prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i)); }
 
   const validRows = rows.filter(r => r.item_name.trim() && parseInt(r.quantity, 10) > 0);
   const totalCost = validRows.reduce((s, r) => s + parseInt(r.quantity, 10) * parseFloat(r.unit_cost || 0), 0);
@@ -71,21 +99,20 @@ export default function InventoryPage() {
     if (validRows.length === 0) { setFormError('Add at least one item with a name and quantity.'); return; }
     setFormError('');
     setSaving(true);
-    const { success } = await addInventoryPurchase(
-      supplier, note,
-      validRows.map(r => ({
-        item_name: r.item_name.trim(),
-        quantity: parseInt(r.quantity, 10),
-        unit_cost: parseFloat(r.unit_cost || 0),
-      }))
-    );
+    const { success } = await addInventoryPurchase(supplier, note, validRows.map(r => ({
+      item_name: r.item_name.trim(),
+      quantity: parseInt(r.quantity, 10),
+      unit_cost: parseFloat(r.unit_cost || 0),
+    })));
     setSaving(false);
     if (success) { setShowModal(false); load(); }
     else setFormError('Failed to save. Please try again.');
   }
 
-  const outCount  = items.filter(i => i.current === 0).length;
-  const lowCount  = items.filter(i => i.current > 0 && i.current <= LOW).length;
+  // ── Filter ───────────────────────────────────────────────────────────────────
+
+  const outCount = items.filter(i => i.current === 0).length;
+  const lowCount = items.filter(i => i.current > 0 && i.current <= LOW).length;
 
   const filtered = items.filter(i => {
     if (search && !i.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -101,7 +128,7 @@ export default function InventoryPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Inventory</h1>
-            <p className="text-xs text-white/70 mt-0.5">Purchased − Sold = Current stock</p>
+            <p className="text-xs text-white/70 mt-0.5">Tap stock number to edit</p>
           </div>
           <button
             onClick={openModal}
@@ -118,17 +145,15 @@ export default function InventoryPage() {
       {/* Filter chips */}
       <div className="flex gap-2 px-4 pt-3">
         {[
-          { key: 'all',  label: `All (${items.length})` },
-          { key: 'low',  label: `Low (${lowCount})` },
-          { key: 'out',  label: `Out (${outCount})` },
+          { key: 'all', label: `All (${items.length})` },
+          { key: 'low', label: `Low (${lowCount})` },
+          { key: 'out', label: `Out (${outCount})` },
         ].map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setFilter(key)}
             className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-              filter === key
-                ? 'bg-brand text-white border-brand'
-                : 'bg-white text-gray-500 border-gray-200'
+              filter === key ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'
             }`}
           >
             {label}
@@ -155,22 +180,58 @@ export default function InventoryPage() {
           <div className="text-center text-gray-300 py-12">
             {search || filter !== 'all' ? 'No products match.' : 'No stock data yet. Add stock or sync the POS.'}
           </div>
-        ) : filtered.map((item, i) => (
-          <div key={i} className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${item.current === 0 ? 'border-l-4 border-red-400' : item.current <= LOW ? 'border-l-4 border-orange-400' : ''}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
-                <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                  <span>+{item.total_in} in</span>
-                  <span>−{item.total_sold} sold</span>
+        ) : filtered.map((item) => {
+          const isEditing = editingId === item.name;
+          return (
+            <div
+              key={item.name}
+              className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${item.current === 0 ? 'border-l-4 border-red-400' : item.current <= LOW ? 'border-l-4 border-orange-400' : ''}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                    <span>+{item.total_in} in</span>
+                    <span>−{item.total_sold} sold</span>
+                    {item.adjustment !== 0 && <span className={item.adjustment > 0 ? 'text-purple-500' : 'text-orange-500'}>{item.adjustment > 0 ? `+${item.adjustment}` : item.adjustment} adj</span>}
+                  </div>
+                </div>
+
+                {/* Stock display / inline edit */}
+                <div className="shrink-0 flex items-center gap-2">
+                  {isEditing ? (
+                    <>
+                      <input
+                        ref={editRef}
+                        type="number"
+                        min="0"
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') confirmEdit(item); if (e.key === 'Escape') cancelEdit(); }}
+                        className="w-16 border-2 border-brand rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none"
+                      />
+                      <button
+                        onClick={() => confirmEdit(item)}
+                        disabled={savingEdit}
+                        className="text-xs font-bold text-white bg-brand px-2 py-1 rounded-lg disabled:opacity-50"
+                      >
+                        {savingEdit ? '…' : 'Save'}
+                      </button>
+                      <button onClick={cancelEdit} className="text-xs text-gray-400 px-1">✕</button>
+                    </>
+                  ) : (
+                    <button onClick={() => startEdit(item)} className="flex items-center gap-1.5 group">
+                      <StockBadge current={item.current} />
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="shrink-0">
-                <StockBadge current={item.current} />
-              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <NavBar />
@@ -180,7 +241,6 @@ export default function InventoryPage() {
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowModal(false)} />
           <div className="relative bg-white rounded-t-3xl max-h-[92vh] flex flex-col" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-            {/* Modal header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
               <h2 className="text-lg font-bold text-gray-800">Add Stock</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
@@ -190,28 +250,16 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier (optional)</label>
-                <input
-                  type="text"
-                  value={supplier}
-                  onChange={e => setSupplier(e.target.value)}
-                  placeholder="e.g. Ang Tirahan Grocery"
-                  className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand"
-                />
+                <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="e.g. Ang Tirahan Grocery"
+                  className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
               </div>
-
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Note (optional)</label>
-                <input
-                  type="text"
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  placeholder="e.g. Weekly restock"
-                  className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand"
-                />
+                <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Weekly restock"
+                  className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
               </div>
 
               <div>
@@ -224,42 +272,24 @@ export default function InventoryPage() {
                     Add row
                   </button>
                 </div>
-
                 <div className="grid grid-cols-12 gap-1.5 mb-1 px-1">
                   <span className="col-span-5 text-xs text-gray-400 font-semibold">Product name</span>
                   <span className="col-span-3 text-xs text-gray-400 font-semibold text-center">Qty</span>
                   <span className="col-span-3 text-xs text-gray-400 font-semibold text-center">Unit cost</span>
                   <span className="col-span-1" />
                 </div>
-
                 <div className="space-y-2">
                   {rows.map((row, i) => (
                     <div key={i} className="grid grid-cols-12 gap-1.5 items-center">
-                      <input
-                        type="text"
-                        value={row.item_name}
-                        onChange={e => updateRow(i, 'item_name', e.target.value)}
-                        placeholder="Name"
-                        list="product-names"
-                        className="col-span-5 border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand"
-                      />
-                      <input
-                        type="number"
-                        value={row.quantity}
-                        onChange={e => updateRow(i, 'quantity', e.target.value)}
-                        placeholder="0"
-                        min="1"
-                        className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:border-brand"
-                      />
-                      <input
-                        type="number"
-                        value={row.unit_cost}
-                        onChange={e => updateRow(i, 'unit_cost', e.target.value)}
-                        placeholder="0.00"
-                        min="0"
-                        step="0.01"
-                        className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:border-brand"
-                      />
+                      <input type="text" value={row.item_name} onChange={e => updateRow(i, 'item_name', e.target.value)}
+                        placeholder="Name" list="product-names"
+                        className="col-span-5 border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-brand" />
+                      <input type="number" value={row.quantity} onChange={e => updateRow(i, 'quantity', e.target.value)}
+                        placeholder="0" min="1"
+                        className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:border-brand" />
+                      <input type="number" value={row.unit_cost} onChange={e => updateRow(i, 'unit_cost', e.target.value)}
+                        placeholder="0.00" min="0" step="0.01"
+                        className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:border-brand" />
                       <button onClick={() => removeRow(i)} className="col-span-1 flex items-center justify-center text-gray-300 hover:text-red-400">
                         <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                           <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" />
@@ -268,8 +298,6 @@ export default function InventoryPage() {
                     </div>
                   ))}
                 </div>
-
-                {/* Datalist for product name autocomplete */}
                 <datalist id="product-names">
                   {items.map((item, i) => <option key={i} value={item.name} />)}
                 </datalist>
@@ -278,18 +306,14 @@ export default function InventoryPage() {
               {formError && <p className="text-xs text-red-500 font-medium">{formError}</p>}
             </div>
 
-            {/* Footer */}
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3 bg-white">
               <div>
                 <p className="text-xs text-gray-400 font-semibold">Total Cost</p>
                 <p className="text-xl font-bold text-gray-800">{fmt(totalCost)}</p>
                 <p className="text-xs text-gray-400">{validRows.length} product(s)</p>
               </div>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 bg-brand text-white font-bold px-6 py-3.5 rounded-2xl disabled:opacity-50 text-sm"
-              >
+              <button onClick={handleSave} disabled={saving}
+                className="flex items-center gap-2 bg-brand text-white font-bold px-6 py-3.5 rounded-2xl disabled:opacity-50 text-sm">
                 {saving ? 'Saving…' : (
                   <>
                     <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
