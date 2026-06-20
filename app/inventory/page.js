@@ -303,6 +303,7 @@ export default function InventoryPage() {
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
   const [filter, setFilter]           = useState('all');
+  const [tab, setTab]                 = useState('stock'); // 'stock' | 'pending'
   const [showModal, setShowModal]     = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting]       = useState(false);
@@ -389,185 +390,227 @@ export default function InventoryPage() {
     <div className="min-h-screen pb-24">
       {/* Header */}
       <div className="bg-brand text-white px-4 sticky top-0 z-40"
-        style={{ paddingTop: 'max(3rem, env(safe-area-inset-top))', paddingBottom: '1rem' }}>
-        <div className="flex items-center justify-between">
+        style={{ paddingTop: 'max(3rem, env(safe-area-inset-top))', paddingBottom: '0' }}>
+        <div className="flex items-center justify-between pt-4 pb-3">
           <div>
             <h1 className="text-xl font-bold">Inventory</h1>
-            <p className="text-xs text-white/70 mt-0.5">Tap stock badge to edit</p>
+            <p className="text-xs text-white/70 mt-0.5">
+              {tab === 'stock' ? 'Tap stock badge to edit' : 'Approve or reject cashier requests'}
+            </p>
           </div>
-          <button onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold px-3 py-2 rounded-xl">
-            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-            </svg>
-            Add Stock
+          {tab === 'stock' && (
+            <button onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold px-3 py-2 rounded-xl">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+              </svg>
+              Add Stock
+            </button>
+          )}
+        </div>
+
+        {/* Tab bar inside header */}
+        <div className="flex border-t border-white/20">
+          <button
+            onClick={() => setTab('stock')}
+            className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
+              tab === 'stock' ? 'text-white border-b-2 border-white' : 'text-white/50 border-b-2 border-transparent'
+            }`}
+          >
+            Stock
+          </button>
+          <button
+            onClick={() => setTab('pending')}
+            className={`flex-1 py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+              tab === 'pending' ? 'text-white border-b-2 border-white' : 'text-white/50 border-b-2 border-transparent'
+            }`}
+          >
+            Pending
+            {appRequests.length > 0 && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
+                tab === 'pending' ? 'bg-white text-brand' : 'bg-amber-400 text-white'
+              }`}>
+                {appRequests.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Filter chips */}
-      <div className="flex gap-2 px-4 pt-3">
-        {[
-          { key: 'all', label: `All (${items.length})` },
-          { key: 'low', label: `Low (${lowCount})` },
-          { key: 'out', label: `Out (${outCount})` },
-        ].map(({ key, label }) => (
-          <button key={key} onClick={() => setFilter(key)}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-              filter === key ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="px-4 pt-2">
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Search products..."
-          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
-      </div>
-
-      {/* List */}
-      <div className="px-4 py-3 space-y-2">
-        {loading ? (
-          <div className="text-center text-gray-300 py-12">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center text-gray-300 py-12">
-            {search || filter !== 'all' ? 'No products match.' : 'No stock data yet. Tap "Add Stock" to get started.'}
+      {/* ── STOCK TAB ──────────────────────────────────────────────────────── */}
+      {tab === 'stock' && (
+        <>
+          {/* Filter chips */}
+          <div className="flex gap-2 px-4 pt-3">
+            {[
+              { key: 'all', label: `All (${items.length})` },
+              { key: 'low', label: `Low (${lowCount})` },
+              { key: 'out', label: `Out (${outCount})` },
+            ].map(({ key, label }) => (
+              <button key={key} onClick={() => setFilter(key)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                  filter === key ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'
+                }`}>
+                {label}
+              </button>
+            ))}
           </div>
-        ) : filtered.map(item => {
-          return (
-            <div key={item.name}
-              className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${
-                item.current === 0 ? 'border-l-4 border-red-400' :
-                item.current !== -1 && item.current <= LOW ? 'border-l-4 border-orange-400' : ''
-              }`}>
-              <div className="flex items-center gap-3">
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
-                    <span>+{item.total_in} in</span>
-                    <span>−{item.total_sold} sold</span>
+
+          {/* Search */}
+          <div className="px-4 pt-2">
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search products..."
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
+          </div>
+
+          {/* List */}
+          <div className="px-4 py-3 space-y-2">
+            {loading ? (
+              <div className="text-center text-gray-300 py-12">Loading…</div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center text-gray-300 py-12">
+                {search || filter !== 'all' ? 'No products match.' : 'No stock data yet. Tap "Add Stock" to get started.'}
+              </div>
+            ) : filtered.map(item => (
+              <div key={item.name}
+                className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${
+                  item.current === 0 ? 'border-l-4 border-red-400' :
+                  item.current !== -1 && item.current <= LOW ? 'border-l-4 border-orange-400' : ''
+                }`}>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
+                      <span>+{item.total_in} in</span>
+                      <span>−{item.total_sold} sold</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => setEditTarget(item)} className="flex items-center gap-1.5 group">
+                      <StockBadge current={item.current} />
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 shrink-0">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </button>
+                    <button onClick={() => setDeleteTarget(item)}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors">
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
+              </div>
+            ))}
+          </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Edit stock — opens popup */}
-                  <button onClick={() => setEditTarget(item)}
-                    className="flex items-center gap-1.5 group">
-                    <StockBadge current={item.current} />
-                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 shrink-0">
-                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+          {/* Recent Activity */}
+          {activity.length > 0 && (
+            <div className="px-4 pb-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Recent Activity</p>
+              <div className="space-y-2">
+                {activity.map(log => {
+                  const ago = (() => {
+                    const diff = Date.now() - new Date(log.created_at).getTime();
+                    const m = Math.floor(diff / 60000);
+                    if (m < 1) return 'just now';
+                    if (m < 60) return `${m}m ago`;
+                    const h = Math.floor(m / 60);
+                    if (h < 24) return `${h}h ago`;
+                    return `${Math.floor(h / 24)}d ago`;
+                  })();
+                  return (
+                    <div key={log.id} className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-400">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{log.item_name}</p>
+                        <p className="text-xs text-gray-400">Product deleted · {ago}</p>
+                      </div>
+                      {log.action === 'product_deleted' && (
+                        <button onClick={() => handleUndo(log)} disabled={undoing === log.id}
+                          className="shrink-0 text-xs font-bold text-brand border border-brand/30 bg-brand/5 hover:bg-brand/10 px-3 py-1.5 rounded-xl disabled:opacity-50 transition-colors">
+                          {undoing === log.id ? 'Restoring…' : 'Undo'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── PENDING TAB ────────────────────────────────────────────────────── */}
+      {tab === 'pending' && (
+        <div className="px-4 py-3 space-y-2">
+          {loading ? (
+            <div className="text-center text-gray-300 py-12">Loading…</div>
+          ) : appRequests.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="text-5xl mb-3">✓</div>
+              <p className="text-sm font-semibold text-gray-400">No pending requests</p>
+              <p className="text-xs text-gray-300 mt-1">Stock change requests from the POS app will appear here.</p>
+            </div>
+          ) : appRequests.map(req => {
+            const ago = (() => {
+              const diff = Date.now() - new Date(req.created_at).getTime();
+              const m = Math.floor(diff / 60000);
+              if (m < 1) return 'just now';
+              if (m < 60) return `${m}m ago`;
+              const h = Math.floor(m / 60);
+              if (h < 24) return `${h}h ago`;
+              return `${Math.floor(h / 24)}d ago`;
+            })();
+            const isProcessing = processingRequest === req.id;
+            const currentItem = items.find(i => i.name === req.item_name);
+            const currentStock = currentItem
+              ? (currentItem.current === -1 ? '∞' : String(currentItem.current))
+              : '—';
+            return (
+              <div key={req.id} className="bg-white rounded-2xl shadow-sm border border-amber-100 overflow-hidden">
+                <div className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <p className="text-sm font-bold text-gray-800">{req.item_name}</p>
+                    <span className="text-xs text-gray-400 shrink-0">{ago}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="flex-1 bg-gray-50 rounded-xl py-2 text-center">
+                      <p className="text-xs text-gray-400 font-semibold">Current</p>
+                      <p className="text-lg font-bold text-gray-700">{currentStock}</p>
+                    </div>
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-300 shrink-0">
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" />
                     </svg>
+                    <div className="flex-1 bg-amber-50 border-2 border-amber-200 rounded-xl py-2 text-center">
+                      <p className="text-xs text-amber-600 font-semibold">Requested</p>
+                      <p className="text-lg font-bold text-amber-700">{req.stock === -1 ? '∞' : req.stock}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex border-t border-gray-100">
+                  <button
+                    onClick={() => handleRejectRequest(req)}
+                    disabled={isProcessing}
+                    className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors border-r border-gray-100"
+                  >
+                    {isProcessing ? '…' : 'Reject'}
                   </button>
-                  {/* Delete */}
-                  <button onClick={() => setDeleteTarget(item)}
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors">
-                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
+                  <button
+                    onClick={() => handleApproveRequest(req)}
+                    disabled={isProcessing}
+                    className="flex-1 py-3 text-sm font-bold text-brand hover:bg-brand/5 disabled:opacity-40 transition-colors"
+                  >
+                    {isProcessing ? 'Approving…' : 'Approve'}
                   </button>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* App Stock Requests — pending approval */}
-      {appRequests.length > 0 && (
-        <div className="px-4 pb-4">
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
-              POS App Stock Requests ({appRequests.length})
-            </p>
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          </div>
-          <div className="space-y-2">
-            {appRequests.map(req => {
-              const ago = (() => {
-                const diff = Date.now() - new Date(req.created_at).getTime();
-                const m = Math.floor(diff / 60000);
-                if (m < 1) return 'just now';
-                if (m < 60) return `${m}m ago`;
-                const h = Math.floor(m / 60);
-                if (h < 24) return `${h}h ago`;
-                return `${Math.floor(h / 24)}d ago`;
-              })();
-              const isProcessing = processingRequest === req.id;
-              return (
-                <div key={req.id} className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{req.item_name}</p>
-                    <p className="text-xs text-amber-600 font-semibold mt-0.5">
-                      Requesting: {req.stock === -1 ? '∞ Unlimited' : `stock = ${req.stock}`} · {ago}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={() => handleRejectRequest(req)}
-                      disabled={isProcessing}
-                      className="text-xs font-bold text-gray-500 border border-gray-300 bg-white hover:bg-gray-50 px-3 py-1.5 rounded-xl disabled:opacity-40 transition-colors"
-                    >
-                      {isProcessing ? '…' : 'Reject'}
-                    </button>
-                    <button
-                      onClick={() => handleApproveRequest(req)}
-                      disabled={isProcessing}
-                      className="text-xs font-bold text-white bg-brand hover:bg-brand/90 px-3 py-1.5 rounded-xl disabled:opacity-40 transition-colors"
-                    >
-                      {isProcessing ? 'Approving…' : 'Approve'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Activity */}
-      {activity.length > 0 && (
-        <div className="px-4 pb-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Recent Activity</p>
-          <div className="space-y-2">
-            {activity.map(log => {
-              const ago = (() => {
-                const diff = Date.now() - new Date(log.created_at).getTime();
-                const m = Math.floor(diff / 60000);
-                if (m < 1) return 'just now';
-                if (m < 60) return `${m}m ago`;
-                const h = Math.floor(m / 60);
-                if (h < 24) return `${h}h ago`;
-                return `${Math.floor(h / 24)}d ago`;
-              })();
-              return (
-                <div key={log.id} className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0">
-                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-400">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{log.item_name}</p>
-                    <p className="text-xs text-gray-400">Product deleted · {ago}</p>
-                  </div>
-                  {log.action === 'product_deleted' && (
-                    <button
-                      onClick={() => handleUndo(log)}
-                      disabled={undoing === log.id}
-                      className="shrink-0 text-xs font-bold text-brand border border-brand/30 bg-brand/5 hover:bg-brand/10 px-3 py-1.5 rounded-xl disabled:opacity-50 transition-colors"
-                    >
-                      {undoing === log.id ? 'Restoring…' : 'Undo'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+            );
+          })}
         </div>
       )}
 
