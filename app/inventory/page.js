@@ -142,14 +142,13 @@ function EditStockModal({ item, onClose, onSaved }) {
 
 // ── Add Stock Modal ──────────────────────────────────────────────────────────
 function AddStockModal({ visible, items, onClose, onSaved }) {
-  const [supplier, setSupplier] = useState('');
-  const [note, setNote]         = useState('');
-  const [rows, setRows]         = useState([{ ...EMPTY_ROW }]);
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState('');
+  const [note, setNote]     = useState('');
+  const [rows, setRows]     = useState([{ ...EMPTY_ROW }]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
 
   useEffect(() => {
-    if (visible) { setSupplier(''); setNote(''); setRows([{ ...EMPTY_ROW }]); setError(''); }
+    if (visible) { setNote(''); setRows([{ ...EMPTY_ROW }]); setError(''); }
   }, [visible]);
 
   function updateRow(i, field, val) {
@@ -165,7 +164,7 @@ function AddStockModal({ visible, items, onClose, onSaved }) {
     if (validRows.length === 0) { setError('Add at least one product with a name and quantity.'); return; }
     setError('');
     setSaving(true);
-    const result = await addInventoryPurchase(supplier, note, validRows.map(r => ({
+    const result = await addInventoryPurchase('', note, validRows.map(r => ({
       item_name: r.item_name.trim(),
       quantity: parseInt(r.quantity, 10),
       unit_cost: parseFloat(r.unit_cost || 0),
@@ -193,20 +192,6 @@ function AddStockModal({ visible, items, onClose, onSaved }) {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier (optional)</label>
-            <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)}
-              placeholder="e.g. Ang Tirahan Grocery"
-              className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Note (optional)</label>
-            <input type="text" value={note} onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Weekly restock"
-              className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
-          </div>
-
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Products</label>
@@ -249,6 +234,13 @@ function AddStockModal({ visible, items, onClose, onSaved }) {
             <datalist id="product-names">
               {items.map((item, i) => <option key={i} value={item.name} />)}
             </datalist>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Note (optional)</label>
+            <input type="text" value={note} onChange={e => setNote(e.target.value)}
+              placeholder="e.g. Weekly restock"
+              className="mt-1.5 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand" />
           </div>
 
           {error && (
