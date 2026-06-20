@@ -304,11 +304,12 @@ export default function InventoryPage() {
   // ── Delete ─────────────────────────────────────────────────────────────────
   async function handleDelete() {
     if (!deleteTarget) return;
+    const name = deleteTarget.name;
     setDeleting(true);
-    await deleteProductFromInventory(deleteTarget.name);
+    await deleteProductFromInventory(name);
     setDeleting(false);
     setDeleteTarget(null);
-    load();
+    setItems(prev => prev.filter(i => i.name !== name));
   }
 
   // ── Filters ────────────────────────────────────────────────────────────────
