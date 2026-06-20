@@ -12,6 +12,8 @@ const EMPTY_ROW = { item_name: '', quantity: '', unit_cost: '' };
 const LOW = 5;
 
 function StockBadge({ current }) {
+  if (current === -1)
+    return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-600">Unlimited</span>;
   if (current === 0)
     return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Out of stock</span>;
   if (current <= LOW)
@@ -333,7 +335,7 @@ export default function InventoryPage() {
 
   const filtered = items.filter(i => {
     if (search && !i.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filter === 'low') return i.current > 0 && i.current <= LOW;
+    if (filter === 'low') return i.current > 0 && i.current !== -1 && i.current <= LOW;
     if (filter === 'out') return i.current === 0;
     return true;
   });
@@ -394,7 +396,7 @@ export default function InventoryPage() {
             <div key={item.name}
               className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${
                 item.current === 0 ? 'border-l-4 border-red-400' :
-                item.current <= LOW ? 'border-l-4 border-orange-400' : ''
+                item.current !== -1 && item.current <= LOW ? 'border-l-4 border-orange-400' : ''
               }`}>
               <div className="flex items-center gap-3">
                 {/* Info */}
