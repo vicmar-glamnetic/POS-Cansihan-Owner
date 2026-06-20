@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../components/NavBar';
-import { getProductStock, addInventoryPurchase, setProductStock, setUnlimitedStock, getPendingStockRequests, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
+import { getProductStock, addInventoryPurchase, setProductStock, setUnlimitedStock, getAppStockRequests, approveStockRequest, rejectStockRequest, deleteProductFromInventory, getRecentActivity, undoProductDelete } from '../../lib/supabase';
 
 function fmt(n) {
   return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -309,7 +309,8 @@ export default function InventoryPage() {
   const [editTarget, setEditTarget]   = useState(null);
   const [activity, setActivity]       = useState([]);
   const [undoing, setUndoing]         = useState(null);
-  const [pending, setPending]         = useState({}); // item_name → pending stock value
+  const [appRequests, setAppRequests] = useState([]); // pending requests from POS app
+  const [processingRequest, setProcessingRequest] = useState(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && sessionStorage.getItem('pos_authed') !== 'true') {
@@ -320,15 +321,34 @@ export default function InventoryPage() {
 
   async function load() {
     setLoading(true);
-    const [data, logs, pendingMap] = await Promise.all([
+    const [data, logs, requests] = await Promise.all([
       getProductStock(),
       getRecentActivity(10),
-      getPendingStockRequests(),
+      getAppStockRequests(),
     ]);
     setItems(data);
     setActivity(logs);
-    setPending(pendingMap);
+    setAppRequests(requests);
     setLoading(false);
+  }
+
+  async function handleApproveRequest(req) {
+    setProcessingRequest(req.id);
+    const ok = await approveStockRequest(req.id, req.item_name, req.stock);
+    if (ok) {
+      setAppRequests(prev => prev.filter(r => r.id !== req.id));
+      setItems(prev => prev.map(i =>
+        i.name === req.item_name ? { ...i, current: req.stock } : i
+      ));
+    }
+    setProcessingRequest(null);
+  }
+
+  async function handleRejectRequest(req) {
+    setProcessingRequest(req.id);
+    await rejectStockRequest(req.id);
+    setAppRequests(prev => prev.filter(r => r.id !== req.id));
+    setProcessingRequest(null);
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
@@ -417,14 +437,11 @@ export default function InventoryPage() {
             {search || filter !== 'all' ? 'No products match.' : 'No stock data yet. Tap "Add Stock" to get started.'}
           </div>
         ) : filtered.map(item => {
-          const hasPending = pending[item.name] != null;
-          const pendingStock = pending[item.name];
           return (
             <div key={item.name}
               className={`bg-white rounded-2xl shadow-sm px-4 py-3 ${
-                item.current === 0 && !hasPending ? 'border-l-4 border-red-400' :
-                item.current !== -1 && !hasPending && item.current <= LOW ? 'border-l-4 border-orange-400' :
-                hasPending ? 'border-l-4 border-yellow-400' : ''
+                item.current === 0 ? 'border-l-4 border-red-400' :
+                item.current !== -1 && item.current <= LOW ? 'border-l-4 border-orange-400' : ''
               }`}>
               <div className="flex items-center gap-3">
                 {/* Info */}
@@ -433,11 +450,6 @@ export default function InventoryPage() {
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
                     <span>+{item.total_in} in</span>
                     <span>−{item.total_sold} sold</span>
-                    {hasPending && (
-                      <span className="text-yellow-500 font-semibold">
-                        → {pendingStock === -1 ? '∞' : pendingStock} pending POS sync
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -464,6 +476,58 @@ export default function InventoryPage() {
           );
         })}
       </div>
+
+      {/* App Stock Requests — pending approval */}
+      {appRequests.length > 0 && (
+        <div className="px-4 pb-4">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+              POS App Stock Requests ({appRequests.length})
+            </p>
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {appRequests.map(req => {
+              const ago = (() => {
+                const diff = Date.now() - new Date(req.created_at).getTime();
+                const m = Math.floor(diff / 60000);
+                if (m < 1) return 'just now';
+                if (m < 60) return `${m}m ago`;
+                const h = Math.floor(m / 60);
+                if (h < 24) return `${h}h ago`;
+                return `${Math.floor(h / 24)}d ago`;
+              })();
+              const isProcessing = processingRequest === req.id;
+              return (
+                <div key={req.id} className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{req.item_name}</p>
+                    <p className="text-xs text-amber-600 font-semibold mt-0.5">
+                      Requesting: {req.stock === -1 ? '∞ Unlimited' : `stock = ${req.stock}`} · {ago}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => handleRejectRequest(req)}
+                      disabled={isProcessing}
+                      className="text-xs font-bold text-gray-500 border border-gray-300 bg-white hover:bg-gray-50 px-3 py-1.5 rounded-xl disabled:opacity-40 transition-colors"
+                    >
+                      {isProcessing ? '…' : 'Reject'}
+                    </button>
+                    <button
+                      onClick={() => handleApproveRequest(req)}
+                      disabled={isProcessing}
+                      className="text-xs font-bold text-white bg-brand hover:bg-brand/90 px-3 py-1.5 rounded-xl disabled:opacity-40 transition-colors"
+                    >
+                      {isProcessing ? 'Approving…' : 'Approve'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Recent Activity */}
       {activity.length > 0 && (
@@ -522,8 +586,8 @@ export default function InventoryPage() {
         item={editTarget}
         onClose={() => setEditTarget(null)}
         onSaved={(name, newStock) => {
-          // Show as pending — actual change applies when POS app syncs
-          setPending(prev => ({ ...prev, [name]: newStock }));
+          // Update immediately — web edits are direct, no approval needed
+          setItems(prev => prev.map(i => i.name === name ? { ...i, current: newStock } : i));
           setEditTarget(null);
         }}
       />
